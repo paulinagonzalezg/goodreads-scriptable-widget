@@ -10,7 +10,7 @@ const port = 3000;
 
 // Replace this with your own Goodreads Updates URL. See README for information.
 const feedUrl =
-  "https://www.goodreads.com/user/updates_rss/85977318";
+  "https://www.goodreads.com/user/updates_rss/28764910";
 
 // Function to fetch and parse the RSS feed
 async function fetchRSS() {
