@@ -2,15 +2,15 @@ import express from "express";
 import axios from "axios";
 import { parseString } from "xml2js";
 import he from "he";
- 
+
 const app = express();
- 
+
 // Default local port is 3000. Modify this number if you wanna change it.
 const port = 3000;
- 
+
 // Replace this with your own Goodreads Updates URL. See README for information.
 const feedUrl = "https://www.goodreads.com/user/updates_rss/28764910";
- 
+
 // Function to fetch and parse the RSS feed
 async function fetchRSS() {
   try {
@@ -28,11 +28,22 @@ async function fetchRSS() {
     return [];
   }
 }
- 
+
 // Function to extract the relevant progress items and book covers
 async function processProgressItems() {
   const items = await fetchRSS();
- 
+
+  // Titles of books already finished (rated)
+  const finishedTitles = new Set(
+    items
+      .filter((item) => item.title.includes("gave") && item.title.includes("stars to"))
+      .map((item) => {
+        const m = item.title.match(/gave \d+ stars? to (.+)/);
+        return m ? m[1].trim().replace(/^'|'$/g, "") : null;
+      })
+      .filter(Boolean)
+  );
+
   const progressItems = items.filter((item) => {
     const cleanTitle = item.title.replace(/\s+/g, " ").trim();
     return (
@@ -41,22 +52,23 @@ async function processProgressItems() {
       cleanTitle.includes("is currently reading")
     );
   });
- 
+
+  const seen = new Set();
   const books = progressItems
     .map((item) => {
       try {
         const cleanTitle = item.title.replace(/\s+/g, " ").trim();
- 
+
         let progress = 0;
         let title = "";
- 
+
         // "is X% done with TITLE"
         const pctMatch = cleanTitle.match(/is (\d+)% done with (.+)/);
         // "is on page X of Y of TITLE"
         const pageMatch = cleanTitle.match(/is on page (\d+) of (\d+) of (.+)/);
         // "is currently reading TITLE"
         const readingMatch = cleanTitle.match(/is currently reading (.+)/);
- 
+
         if (pctMatch) {
           progress = parseInt(pctMatch[1], 10);
           title = pctMatch[2].trim();
@@ -71,16 +83,23 @@ async function processProgressItems() {
         } else {
           return null;
         }
- 
+
+        // Remove surrounding quotes from title
+        title = title.replace(/^'|'$/g, "");
+
+        // Skip finished books
+        if (finishedTitles.has(title)) return null;
+
+        // Deduplicate by title
+        if (seen.has(title)) return null;
+        seen.add(title);
+
         const rawDesc = item.description || item["content:encoded"] || "";
         const desc = he.decode(rawDesc);
         const coverMatch = desc.match(/src="([^"]+)"/);
- 
         if (!coverMatch) return null;
- 
-        const rawCover = coverMatch[1];
-        const coverImage = rawCover.replace(/\._S[XY]\d+_/, "._SX180_");
- 
+
+        const coverImage = coverMatch[1].replace(/\._S[XY]\d+_/, "._SX180_");
         return { title, progress, coverImage };
       } catch (err) {
         console.warn(`Skipping item due to error: ${err}`);
@@ -88,10 +107,10 @@ async function processProgressItems() {
       }
     })
     .filter(Boolean);
- 
+
   return books;
 }
- 
+
 // Route to get books data
 app.get("/currently-reading", async (req, res) => {
   try {
@@ -103,7 +122,7 @@ app.get("/currently-reading", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch book progress" });
   }
 });
- 
+
 // Route to return sample data for testing
 // Three items
 app.get("/testThreeItems", async (req, res) => {
@@ -127,10 +146,10 @@ app.get("/testThreeItems", async (req, res) => {
         "https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1610434755l/54496088._SX180_.jpg",
     },
   ];
- 
+
   res.json(sampleBooks);
 });
- 
+
 // Two items
 app.get("/testTwoItems", async (req, res) => {
   const sampleBooks = [
@@ -147,10 +166,10 @@ app.get("/testTwoItems", async (req, res) => {
         "https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1610434755l/54496088._SX180_.jpg",
     },
   ];
- 
+
   res.json(sampleBooks);
 });
- 
+
 app.listen(port, () => {
   console.log(`📚 Server running at http://localhost:${port}`);
 });
